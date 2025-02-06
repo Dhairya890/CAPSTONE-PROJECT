@@ -19,7 +19,7 @@ This project focuses on predicting transcription factor (TF) binding sites using
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/yourusername/tf-binding-prediction.git
+git clone https://github.com/Dhairya890/CAPSTONE-PROJECT.git
 cd tf-binding-prediction
 pip install -r requirements.txt
 ```
@@ -57,4 +57,4 @@ Feel free to submit issues or pull requests.
 This project is licensed under the MIT License.
 
 ## Contact
-For questions, reach out at **your.email@example.com**.
+For questions, reach out at **dc1626@scarletmail.rutgers.edu**.
