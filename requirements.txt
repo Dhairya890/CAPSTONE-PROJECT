@@ -1,0 +1,12 @@
+streamlit
+torch
+gensim
+pandas
+numpy
+scikit-learn
+optuna
+xgboost
+openpyxl
+matplotlib
+seaborn
+tqdm

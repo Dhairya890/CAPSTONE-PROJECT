@@ -1,11 +1,12 @@
-import pandas as pd
-import numpy as np
 from itertools import product
-from gensim.models import Word2Vec
+
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.metrics import roc_auc_score, average_precision_score
+from gensim.models import Word2Vec
+from sklearn.metrics import average_precision_score, roc_auc_score
 
 
 def get_kmer_list(sequences, k, stride=1):
@@ -20,9 +21,13 @@ def get_kmer_list(sequences, k, stride=1):
     Returns:
         List[List[str]]: List of k-mer lists.
     """
-    return [[seq[i:i+k] for i in range(0, len(seq)-k+1, stride)] for seq in sequences]
+    return [
+        [seq[i : i + k] for i in range(0, len(seq) - k + 1, stride)]
+        for seq in sequences
+    ]
 
-def train_word2vec(corpus, embedding_dim = 128, window=8, epochs=10):
+
+def train_word2vec(corpus, embedding_dim=128, window=8, epochs=10):
     """
     Trains a Word2Vec model on k-mer corpus.
 
@@ -35,8 +40,19 @@ def train_word2vec(corpus, embedding_dim = 128, window=8, epochs=10):
     Returns:
         gensim.models.Word2Vec: Trained Word2Vec model.
     """
-    model = Word2Vec(sentences=corpus, vector_size=embedding_dim, window=window, min_count=3, workers=4, sg=0, epochs=epochs, compute_loss=True, batch_words=10000)
+    model = Word2Vec(
+        sentences=corpus,
+        vector_size=embedding_dim,
+        window=window,
+        min_count=3,
+        workers=4,
+        sg=0,
+        epochs=epochs,
+        compute_loss=True,
+        batch_words=10000,
+    )
     return model
+
 
 def build_vocab(k=6):
     """
@@ -48,9 +64,9 @@ def build_vocab(k=6):
     Returns:
         dict: Mapping k-mer to index (starting from 1, 0 reserved for padding)
     """
-    bases = ['A', 'C', 'G', 'T']
-    kmers = [''.join(p) for p in product(bases, repeat=k)]
-    return {kmer: idx+1 for idx, kmer in enumerate(kmers)}
+    bases = ["A", "C", "G", "T"]
+    kmers = ["".join(p) for p in product(bases, repeat=k)]
+    return {kmer: idx + 1 for idx, kmer in enumerate(kmers)}
 
 
 def build_embedding_matrix(vocab, pretrained_embeddings, embedding_dim):
@@ -68,8 +84,11 @@ def build_embedding_matrix(vocab, pretrained_embeddings, embedding_dim):
     vocab_size = len(vocab) + 1
     embedding_matrix = np.zeros((vocab_size, embedding_dim))
     for kmer, idx in vocab.items():
-        embedding_matrix[idx] = pretrained_embeddings.get(kmer, np.random.normal(scale=0.6, size=(embedding_dim,)))
+        embedding_matrix[idx] = pretrained_embeddings.get(
+            kmer, np.random.normal(scale=0.6, size=(embedding_dim,))
+        )
     return torch.tensor(embedding_matrix, dtype=torch.float32)
+
 
 # Neural Network for Word_2_Vec:
 
@@ -78,8 +97,9 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import roc_auc_score
 
+
 class SimpleCNN(nn.Module):
-    def __init__(self, embedding_matrix, freeze_embed = False):
+    def __init__(self, embedding_matrix, freeze_embed=False):
         """
         Simple CNN model for DNA sequence classification using pre-trained embeddings.
 
@@ -88,32 +108,34 @@ class SimpleCNN(nn.Module):
         """
         super().__init__()
         vocab_size, embedding_dim = embedding_matrix.shape
-        self.embedding = nn.Embedding.from_pretrained(embedding_matrix, freeze = freeze_embed, padding_idx=0)
+        self.embedding = nn.Embedding.from_pretrained(
+            embedding_matrix, freeze=freeze_embed, padding_idx=0
+        )
 
         self.conv1 = nn.Sequential(
-            nn.Conv1d(embedding_dim, 128, kernel_size=11, padding='same'),
+            nn.Conv1d(embedding_dim, 128, kernel_size=11, padding="same"),
             nn.ReLU(),
             nn.BatchNorm1d(128),
-            nn.Dropout(0.2)
+            nn.Dropout(0.2),
         )
-        
+
         self.conv2 = nn.Sequential(
-            nn.Conv1d(128, 64, kernel_size=7, padding='same'),
+            nn.Conv1d(128, 64, kernel_size=7, padding="same"),
             nn.ReLU(),
             nn.BatchNorm1d(64),
-            nn.Dropout(0.3)
+            nn.Dropout(0.3),
         )
-        
+
         self.conv3 = nn.Sequential(
-            nn.Conv1d(64, 32, kernel_size=5, padding='same'),
+            nn.Conv1d(64, 32, kernel_size=5, padding="same"),
             nn.ReLU(),
             nn.BatchNorm1d(32),
-            nn.Dropout(0.2)
+            nn.Dropout(0.2),
         )
-        
+
         self.global_pool = nn.AdaptiveMaxPool1d(1)
         self.fc = nn.Linear(32, 1)
-        
+
     def forward(self, x):
         x = self.embedding(x)
         x = x.permute(0, 2, 1)
@@ -124,7 +146,17 @@ class SimpleCNN(nn.Module):
         x = self.fc(x)
         return x.squeeze(-1)
 
-def train_and_evaluate(model, train_loader, valid_loader, test_loader, device, epochs=20, lr=1e-3, weight_decay=1e-4):
+
+def train_and_evaluate(
+    model,
+    train_loader,
+    valid_loader,
+    test_loader,
+    device,
+    epochs=20,
+    lr=1e-3,
+    weight_decay=1e-4,
+):
     """
     Trains the model and evaluates on validation and test sets.
 
@@ -141,14 +173,16 @@ def train_and_evaluate(model, train_loader, valid_loader, test_loader, device, e
     Returns:
         Tuple[nn.Module, List[dict]]: Trained model and training history.
     """
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = optim.Adam(
+        model.parameters(), lr=lr, weight_decay=weight_decay
+    )
     criterion = nn.BCEWithLogitsLoss()
 
     history = []
 
     for epoch in range(epochs):
         print(f"🔄 Epoch {epoch+1}/{epochs} started...")
-        
+
         # TRAIN
         model.train()
         total_loss, correct, total = 0, 0, 0
@@ -159,12 +193,12 @@ def train_and_evaluate(model, train_loader, valid_loader, test_loader, device, e
             loss = criterion(preds, y_batch)
             loss.backward()
             optimizer.step()
-            
+
             total_loss += loss.item()
             preds_bin = (torch.sigmoid(preds) >= 0.5).float()
             correct += (preds_bin == y_batch).sum().item()
             total += y_batch.size(0)
-        
+
         avg_train_loss = total_loss / len(train_loader)
         train_acc = correct / total
 
@@ -185,23 +219,29 @@ def train_and_evaluate(model, train_loader, valid_loader, test_loader, device, e
                 val_total += y_batch.size(0)
                 val_preds_list.append(probs.cpu())
                 val_labels_list.append(y_batch.cpu())
-        
+
         avg_val_loss = val_loss / len(valid_loader)
         val_acc = val_correct / val_total
         val_preds_all = torch.cat(val_preds_list)
         val_labels_all = torch.cat(val_labels_list)
-        val_roc_auc = roc_auc_score(val_labels_all.numpy(), val_preds_all.numpy())
+        val_roc_auc = roc_auc_score(
+            val_labels_all.numpy(), val_preds_all.numpy()
+        )
 
-        print(f"📈 Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Train Acc: {train_acc:.4f} | Val Loss: {avg_val_loss:.4f} | Val Acc: {val_acc:.4f} | Val ROC-AUC: {val_roc_auc:.4f}")
+        print(
+            f"📈 Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Train Acc: {train_acc:.4f} | Val Loss: {avg_val_loss:.4f} | Val Acc: {val_acc:.4f} | Val ROC-AUC: {val_roc_auc:.4f}"
+        )
 
-        history.append({
-            'epoch': epoch+1,
-            'train_loss': avg_train_loss,
-            'train_acc': train_acc,
-            'val_loss': avg_val_loss,
-            'val_acc': val_acc,
-            'val_roc_auc': val_roc_auc
-        })
+        history.append(
+            {
+                "epoch": epoch + 1,
+                "train_loss": avg_train_loss,
+                "train_acc": train_acc,
+                "val_loss": avg_val_loss,
+                "val_acc": val_acc,
+                "val_roc_auc": val_roc_auc,
+            }
+        )
 
     # TEST
     model.eval()
@@ -225,32 +265,44 @@ def train_and_evaluate(model, train_loader, valid_loader, test_loader, device, e
     test_acc = test_correct / test_total
     test_preds_all = torch.cat(test_preds_list)
     test_labels_all = torch.cat(test_labels_list)
-    test_roc_auc = roc_auc_score(test_labels_all.numpy(), test_preds_all.numpy())
+    test_roc_auc = roc_auc_score(
+        test_labels_all.numpy(), test_preds_all.numpy()
+    )
 
-    print(f"✅ Final Test | Loss: {avg_test_loss:.4f} | Acc: {test_acc:.4f} | ROC-AUC: {test_roc_auc:.4f}")
-    
-    test_pr_auc = average_precision_score(test_labels_all.numpy(), test_preds_all.numpy())
+    print(
+        f"✅ Final Test | Loss: {avg_test_loss:.4f} | Acc: {test_acc:.4f} | ROC-AUC: {test_roc_auc:.4f}"
+    )
+
+    test_pr_auc = average_precision_score(
+        test_labels_all.numpy(), test_preds_all.numpy()
+    )
     test_metrics = {
-        'test_loss': avg_test_loss,
-        'test_acc': test_acc,
-        'test_roc_auc': test_roc_auc,
-        'test_pr_auc': test_pr_auc
+        "test_loss": avg_test_loss,
+        "test_acc": test_acc,
+        "test_roc_auc": test_roc_auc,
+        "test_pr_auc": test_pr_auc,
     }
 
     return model, history[-1], test_metrics
 
 
-def predict_sequence(model, w2v_model, vocab, sequence, k=6, stride=1, max_len=96, device='cpu'):
+def predict_W2V_sequence(
+    model, w2v_model, vocab, sequence, k=6, stride=1, max_len=96, device="cpu"
+):
     # Step 0: Uppercase input
     sequence = sequence.upper()
 
     # Step 0.5: Validate input
-    allowed_chars = {'A', 'C', 'G', 'T'}
+    allowed_chars = {"A", "C", "G", "T"}
     if not set(sequence).issubset(allowed_chars):
-        raise ValueError(f"Invalid characters found in sequence. Allowed characters: {allowed_chars}")
+        raise ValueError(
+            f"Invalid characters found in sequence. Allowed characters: {allowed_chars}"
+        )
 
     # Step 1: Tokenize input into k-mers
-    tokens = [sequence[i:i+k] for i in range(0, len(sequence)-k+1, stride)]
+    tokens = [
+        sequence[i : i + k] for i in range(0, len(sequence) - k + 1, stride)
+    ]
 
     # Step 2: Map k-mers to indices
     indices = [vocab.get(kmer, 0) for kmer in tokens]  # 0 for unknowns/padding
@@ -261,7 +313,9 @@ def predict_sequence(model, w2v_model, vocab, sequence, k=6, stride=1, max_len=9
     else:
         indices = indices[:max_len]
 
-    input_tensor = torch.tensor(indices, dtype=torch.long).unsqueeze(0).to(device)  # shape [1, seq_len]
+    input_tensor = (
+        torch.tensor(indices, dtype=torch.long).unsqueeze(0).to(device)
+    )  # shape [1, seq_len]
 
     # Step 4: Predict
     model.eval()
@@ -269,6 +323,6 @@ def predict_sequence(model, w2v_model, vocab, sequence, k=6, stride=1, max_len=9
         logits = model(input_tensor)
         proba = torch.sigmoid(logits).item()
 
-    pred_label = 1 if proba >= 0.5 else 0
-
-    return pred_label, proba
+    label = "TFBS" if proba >= 0.5 else "Non-TFBS"
+    confidence = proba if proba >= 0.5 else 1 - proba
+    return label, round(confidence * 100, 2)

@@ -1,11 +1,18 @@
+import json
+from itertools import product
+
+import numpy as np
+import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score
-import optuna
-import numpy as np
-from itertools import product
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    roc_auc_score,
+)
 from torch.utils.data import Dataset
+
 
 def build_kmer_vocab(k=5):
     """
@@ -17,10 +24,11 @@ def build_kmer_vocab(k=5):
     Returns:
         dict: Mapping from k-mer string to integer index (1-indexed, 0 is padding).
     """
-    bases = ['A', 'C', 'G', 'T']
-    kmers = [''.join(p) for p in product(bases, repeat=k)]
+    bases = ["A", "C", "G", "T"]
+    kmers = ["".join(p) for p in product(bases, repeat=k)]
     vocab = {kmer: idx + 1 for idx, kmer in enumerate(kmers)}  # +1 for padding
     return vocab
+
 
 def tokenize_sequence(seq, vocab, k=5, stride=2):
     """
@@ -35,7 +43,11 @@ def tokenize_sequence(seq, vocab, k=5, stride=2):
     Returns:
         List[int]: List of integer token ids.
     """
-    return [vocab.get(seq[i:i+k], 0) for i in range(0, len(seq)-k+1, stride)]
+    return [
+        vocab.get(seq[i : i + k], 0)
+        for i in range(0, len(seq) - k + 1, stride)
+    ]
+
 
 class PreTokenizedDataset(Dataset):
     def __init__(self, tokenized_seqs, labels, max_len=None):
@@ -53,70 +65,39 @@ class PreTokenizedDataset(Dataset):
             if len(tokens) < self.max_len:
                 tokens += [0] * (self.max_len - len(tokens))
             else:
-                tokens = tokens[:self.max_len]
-        return torch.tensor(tokens, dtype=torch.long), torch.tensor(label, dtype=torch.float32)
+                tokens = tokens[: self.max_len]
+        return torch.tensor(tokens, dtype=torch.long), torch.tensor(
+            label, dtype=torch.float32
+        )
+
 
 class DynamicCNN(nn.Module):
-    def __init__(self, vocab_size, hp, max_len=50):
-        """
-        PyTorch Dataset for pre-tokenized DNA sequences.
-
-        Each sequence is already tokenized into integer indices (e.g., via k-mer vocab).
-        Optionally pads or truncates sequences to max_len.
-
-        Args:
-            tokenized_seqs (List[List[int]]): List of tokenized sequences.
-            labels (List[int]): Corresponding labels.
-            max_len (int, optional): If provided, sequences will be padded/truncated to this length.
-        """
+    def __init__(self, vocab_size, hp, max_len=None):
         super().__init__()
-        embedding_dim = hp['embedding_dim']
-        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
-        self._current_seq_len = max_len
+        self.hp = hp
+        self.embedding = nn.Embedding(
+            num_embeddings=vocab_size,
+            embedding_dim=hp.get("embedding_dim", 128),
+        )
 
         layers = []
-        in_channels = embedding_dim
-        num_layers = hp['num_layers']
-        dilation = 1
-
-        for i in range(num_layers):
-            out_channels = hp[f'units_{i}']
-            kernel_size = hp[f'kernel_size_{i}']
-            dropout_rate = hp[f'dropout_{i}']
-            activation_name = hp[f'activation_{i}']
-
-            layers.append(nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, dilation=dilation, padding='same'))
-            if activation_name == "relu":
-                layers.append(nn.ReLU())
-            elif activation_name == "gelu":
-                layers.append(nn.GELU())
-            elif activation_name == "silu":
-                layers.append(nn.SiLU())
-            layers.append(nn.Dropout(dropout_rate))
-
-            expected_seq_len = (self._current_seq_len + 1) // 2
-            if expected_seq_len >= 10:
-                layers.append(nn.MaxPool1d(kernel_size=2))
-                self._current_seq_len = expected_seq_len
-
+        in_channels = hp.get("embedding_dim", 128)
+        for i in range(hp.get("num_layers", 1)):
+            out_channels = hp.get(f"units_{i}", 64)
+            kernel_size = hp.get(f"kernel_size_{i}", 7)
+            layers.append(nn.Conv1d(in_channels, out_channels, kernel_size))
+            layers.append(nn.ReLU())
             in_channels = out_channels
-            if (i + 1) % 2 == 0:
-                dilation = min(dilation * 2, 8)
-
-        self.conv_layers = nn.Sequential(*layers)
-        self.attention = nn.MultiheadAttention(embed_dim=in_channels, num_heads=4, batch_first=True)
-        self.global_pool = nn.AdaptiveMaxPool1d(1)
+        self.conv = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveMaxPool1d(1)
         self.fc = nn.Linear(in_channels, 1)
 
     def forward(self, x):
-        x = self.embedding(x)
-        x = x.permute(0, 2, 1)
-        x = self.conv_layers(x)
-        x = x.permute(0, 2, 1)
-        attn_output, _ = self.attention(x, x, x)
-        x = attn_output.permute(0, 2, 1)
-        x = self.global_pool(x).squeeze(-1)
-        return self.fc(x).squeeze(-1)
+        x = self.embedding(x).permute(0, 2, 1)
+        x = self.conv(x)
+        x = self.pool(x).squeeze(-1)
+        return self.fc(x)
+
 
 def train_one_epoch(model, loader, optimizer, criterion, device):
     model.train()
@@ -125,11 +106,12 @@ def train_one_epoch(model, loader, optimizer, criterion, device):
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
         preds = model(x)
-        loss = criterion(preds, y)
+        loss = criterion(preds.squeeze(1), y)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
     return total_loss / len(loader)
+
 
 def evaluate(model, loader, device):
     model.eval()
@@ -137,7 +119,7 @@ def evaluate(model, loader, device):
     with torch.no_grad():
         for x, y in loader:
             x, y = x.to(device), y.to(device)
-            outputs = model(x)
+            outputs = model(x).squeeze(1)
             preds.append(outputs.sigmoid().cpu())
             labels.append(y.cpu())
     preds = torch.cat(preds)
@@ -146,28 +128,48 @@ def evaluate(model, loader, device):
     acc = (preds_binary == labels).float().mean().item()
     return acc, preds, labels
 
-def objective(trial, train_loader, valid_loader, vocab_size, device, epochs, max_len, search_space):
+
+def objective(
+    trial,
+    train_loader,
+    valid_loader,
+    vocab_size,
+    device,
+    epochs,
+    max_len,
+    search_space,
+):
     hp = {}
 
-    for param in ['num_layers', 'embedding_dim']:
+    for param in ["num_layers", "embedding_dim"]:
         config = search_space[param]
-        if config['type'] == 'int':
-            hp[param] = trial.suggest_int(param, config['low'], config['high'])
-        elif config['type'] == 'float':
-            hp[param] = trial.suggest_float(param, config['low'], config['high'], log=config.get('log', False))
-        elif config['type'] == 'categorical':
-            hp[param] = trial.suggest_categorical(param, config['choices'])
+        if config["type"] == "int":
+            hp[param] = trial.suggest_int(param, config["low"], config["high"])
+        elif config["type"] == "float":
+            hp[param] = trial.suggest_float(
+                param,
+                config["low"],
+                config["high"],
+                log=config.get("log", False),
+            )
+        elif config["type"] == "categorical":
+            hp[param] = trial.suggest_categorical(param, config["choices"])
 
-    for i in range(hp['num_layers']):
-        for param in ['units', 'kernel_size', 'activation', 'dropout']:
+    for i in range(hp["num_layers"]):
+        for param in ["units", "kernel_size", "activation", "dropout"]:
             config = search_space[param]
-            key = f'{param}_{i}'
-            if config['type'] == 'int':
-                hp[key] = trial.suggest_int(key, config['low'], config['high'])
-            elif config['type'] == 'float':
-                hp[key] = trial.suggest_float(key, config['low'], config['high'], log=config.get('log', False))
-            elif config['type'] == 'categorical':
-                hp[key] = trial.suggest_categorical(key, config['choices'])
+            key = f"{param}_{i}"
+            if config["type"] == "int":
+                hp[key] = trial.suggest_int(key, config["low"], config["high"])
+            elif config["type"] == "float":
+                hp[key] = trial.suggest_float(
+                    key,
+                    config["low"],
+                    config["high"],
+                    log=config.get("log", False),
+                )
+            elif config["type"] == "categorical":
+                hp[key] = trial.suggest_categorical(key, config["choices"])
 
     model = DynamicCNN(vocab_size, hp, max_len=max_len)
     model.to(device)
@@ -180,7 +182,18 @@ def objective(trial, train_loader, valid_loader, vocab_size, device, epochs, max
     acc, preds, labels = evaluate(model, valid_loader, device)
     return acc
 
-def run_optuna_pipeline(train_loader, valid_loader, vocab_size, device, epochs, n_trials, max_len, save_path, search_space):
+
+def run_optuna_pipeline(
+    train_loader,
+    valid_loader,
+    vocab_size,
+    device,
+    epochs,
+    n_trials,
+    max_len,
+    save_path,
+    search_space,
+):
     """
     Runs an Optuna hyperparameter optimization pipeline.
 
@@ -196,11 +209,23 @@ def run_optuna_pipeline(train_loader, valid_loader, vocab_size, device, epochs, 
         search_space (dict): Dictionary defining hyperparameter search space.
 
     Returns:
-        Tuple[nn.Module, dict, float, optuna.Study]: 
+        Tuple[nn.Module, dict, float, optuna.Study]:
             (best_model, best_params, best_accuracy, optuna_study_object)
     """
     study = optuna.create_study(direction="maximize")
-    study.optimize(lambda trial: objective(trial, train_loader, valid_loader, vocab_size, device, epochs, max_len, search_space), n_trials=n_trials)
+    study.optimize(
+        lambda trial: objective(
+            trial,
+            train_loader,
+            valid_loader,
+            vocab_size,
+            device,
+            epochs,
+            max_len,
+            search_space,
+        ),
+        n_trials=n_trials,
+    )
 
     best_params = study.best_trial.params
     best_model = DynamicCNN(vocab_size, best_params, max_len=max_len)
@@ -217,3 +242,61 @@ def run_optuna_pipeline(train_loader, valid_loader, vocab_size, device, epochs, 
     return best_model, best_params, acc, study
 
 
+def load_optuna_cnn_kmer_model(
+    model_path, config_path, vocab_size, device="cpu"
+):
+    """
+    Loads a saved TFBS CNN model and its hyperparameters.
+
+    Args:
+        model_path (str): Path to the saved .pt file.
+        config_path (str): Path to the saved .json hyperparameter config.
+        vocab_size (int): Size of the k-mer vocabulary.
+        device (str): 'cpu' or 'cuda'.
+
+    Returns:
+        nn.Module: Loaded model.
+    """
+    with open(config_path, "r") as f:
+        hp = json.load(f)
+    model = DynamicCNN(vocab_size=vocab_size, hp=hp)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    model.eval()
+    return model, hp
+
+
+def predict_optuna_cnn_kmer(
+    sequence, model, vocab, k=5, stride=1, max_len=96, device="cpu"
+):
+    """
+    Predicts whether a DNA sequence is a TFBS using the trained CNN model.
+
+    Args:
+        sequence (str): Input DNA sequence.
+        model (nn.Module): Loaded CNN model.
+        vocab (dict): k-mer vocabulary.
+        k (int): k-mer size.
+        stride (int): stride length used in tokenization.
+        max_len (int): maximum input length for the model.
+        device (str): 'cpu' or 'cuda'.
+
+    Returns:
+        Tuple[str, float]: ("TFBS"/"Non-TFBS", confidence score %)
+    """
+    tokens = tokenize_sequence(sequence.upper(), vocab, k=k, stride=stride)
+    if len(tokens) < max_len:
+        tokens += [0] * (max_len - len(tokens))
+    else:
+        tokens = tokens[:max_len]
+
+    input_tensor = (
+        torch.tensor(tokens, dtype=torch.long).unsqueeze(0).to(device)
+    )
+    with torch.no_grad():
+        logits = model(input_tensor).squeeze(1)
+        prob = torch.sigmoid(logits).item()
+
+    label = "TFBS" if prob >= 0.5 else "Non-TFBS"
+    confidence = prob if prob >= 0.5 else 1 - prob
+    return label, round(confidence * 100, 2)

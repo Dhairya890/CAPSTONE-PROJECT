@@ -1,60 +1,38 @@
 # TF Binding Sites Prediction
 
 ## Project Overview
-This project focuses on predicting transcription factor (TF) binding sites using DNA sequence data. The dataset is sourced from **ENCODE**, and the goal is to classify DNA sequences into binding or non-binding sites. The project employs deep learning, traditional machine learning models, and state-of-the-art techniques to compare their effectiveness.
+This project aims to predict transcription factor (TF) binding sites from DNA sequence data. Using a subset of the *ENCODE* dataset, we classify 101-base pair DNA sequences as binding or non-binding. We compare multiple models, including **convolutional neural networks (CNNs)** trained on different encoding schemes and a **traditional machine learning model (XGBoost)**. The project is designed to process large-scale genomic data, automate experiments across multiple dataset folders, and store results systematically.
+
+## Project Structure
+The repository is organized as follows:
+
+
+### Folder Details
+- **notebooks/**: Contains `.ipynb` files used for exploratory data analysis (EDA), testing encoding techniques, debugging models, and validating intermediate results.
+- **models/**: Stores the trained models saved automatically for each dataset folder iteration, allowing checkpointing and per-folder evaluation.
+- **output/**: Contains an Excel file summarizing metrics (accuracy, AUC, loss, etc.) for all dataset folders processed. Each row corresponds to a different folder/run.
+- **utils/**: Contains modular Python scripts (`.py`) with reusable functions like `one_hot.py`, `kmer.py`, `load_sequence_data.py`, etc., to keep codebase clean and maintainable.
 
 ## Methodology
 1. **Data Preprocessing**
-   - One-hot encoding or k-mer encoding of DNA sequences.
+   - Removed ambiguous DNA bases (e.g., sequences with "N").
+   - Applied **one-hot encoding** or **k-mer encoding** (with configurable k and stride).
    
 2. **Model Development**
-   - Custom **CNN model** optimized using **Keras Tuner**.
-   - Comparison with **traditional ML models** (e.g., Random Forest, SVM, Logistic Regression).
-   - Evaluation against **state-of-the-art models** for TF binding site prediction.
-   
-3. **Deployment**
-   - Hosting the best-performing model on **Streamlit** for real-time predictions.
+   - Trained CNN models with different configurations (using somewhat manual tuning and *Optuna*).
+   - Compared CNNs to an XGBoost classifier trained on **count-based k-mer features** (CountVectorizer / TF-IDF).
+   - Automated evaluation across 50 dataset folders (~1.5 million training samples, ~400K testing samples).
+
+3. **Explainability**
+   - Used **Optuna visualization tools** (e.g., hyperparameter importance plots) to analyze which hyperparameters and encoding settings most influenced model performance.
 
 ## Installation
 Clone the repository and install dependencies:
 
 ```bash
 git clone https://github.com/Dhairya890/CAPSTONE-PROJECT.git
-cd tf-binding-prediction
 pip install -r requirements.txt
-```
-
-## Usage
-Train and evaluate models:
-
-```bash
-python train.py
-```
-
-Run the Streamlit app:
-
-```bash
 streamlit run app.py
 ```
 
-## Features
-- Supports **multiple encoding schemes** (One-hot, k-mer)
-- Custom **CNN architecture** optimized with **Keras Tuner**
-- **Traditional ML models** for comparison
-- **State-of-the-art model evaluation**
-- **Streamlit web interface** for easy interaction
-
-## Roadmap
-- [ ] Fine-tune CNN architecture
-- [ ] Experiment with additional encoding techniques
-- [ ] Enhance Streamlit UI with visualizations
-- [ ] Deploy on cloud (e.g., Hugging Face Spaces, AWS, GCP)
-
-## Contributing
-Feel free to submit issues or pull requests.
-
-## License
-This project is licensed under the MIT License.
-
-## Contact
-For questions, reach out at **dc1626@scarletmail.rutgers.edu**.
+For questions, reach out at dc1626@scarletmail.rutgers.edu
