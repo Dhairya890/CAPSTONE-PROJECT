@@ -1,0 +1,13 @@
+{
+    "k": 6,
+    "stride": 1,
+    "accuracy": 0.6526,
+    "xgboost_params": {
+        "n_estimators": 1000,
+        "max_depth": 4,
+        "learning_rate": 0.05,
+        "subsample": 0.6,
+        "colsample_bytree": 0.6,
+        "gamma": 0.0
+    }
+}
